@@ -270,6 +270,7 @@ type Model struct {
 
 	startupPhase     int
 	startupAnimating bool
+	booting          bool
 	pendingTyped     *typedPromptCandidate
 
 	update updateInfo
@@ -630,7 +631,7 @@ func (m *Model) previewTick() tea.Cmd {
 }
 
 func (m *Model) needsLoaderTick() bool {
-	return m.hasStartingRow() || m.reviewNeedsLoader() || m.hasWorkingLoaderRow()
+	return m.booting || m.hasStartingRow() || m.reviewNeedsLoader() || m.hasWorkingLoaderRow()
 }
 
 // typedPromptCandidate is a composer draft snapshotted as enter went into
@@ -767,6 +768,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		mouseDisabled:       storedMouseDisabled(st),
 		imeCursor:           &cursorAnchor{},
 		mode:                modeList,
+		booting:             true,
 		update:              updateInfo{version: version},
 		dismissed:           loadDismissed(st),
 		whatsNewVersion:     loadWhatsNewVersion(st),
@@ -1452,6 +1454,7 @@ func (m *Model) handleMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.previewCmd(sess, m.previewGen), m.previewTick())
 
 	case refreshMsg:
+		m.booting = false
 		m.ageError()
 		// The focused session can die or vanish under us; fall back to the
 		// list rather than typing into nothing.

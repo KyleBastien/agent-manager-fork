@@ -18,6 +18,14 @@ func (m *Model) View() string {
 	if m.width == 0 {
 		return m.syncCursorAnchor("loading...")
 	}
+	if m.booting {
+		var lines []string
+		for _, line := range ringLoader(m.width, m.height, "loading", m.startupPhase) {
+			lines = append(lines, paint(line, m.width, backdropHex()))
+		}
+		frame := m.overlayTopRight(strings.Join(lines, "\n"), m.statusToast(), 0)
+		return m.syncCursorAnchor(clampFrame(frame, m.height))
+	}
 	var frame string
 	switch m.mode {
 	case modeForm:

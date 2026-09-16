@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -79,6 +80,27 @@ func TestPreviewCadenceIsIndependentFromStartupAnimation(t *testing.T) {
 				t.Fatalf("preview interval = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestStartupTickRunsWhileBooting(t *testing.T) {
+	m := &Model{booting: true}
+	if cmd := m.startStartupTick(); cmd == nil || !m.startupAnimating {
+		t.Fatal("boot should start the loader tick")
+	}
+	m.booting = false
+	_, cmd := m.Update(startupTickMsg{})
+	if cmd != nil || m.startupAnimating {
+		t.Fatal("loader tick kept running after boot settled")
+	}
+}
+
+func TestFirstRefreshClearsBootLoader(t *testing.T) {
+	m := &Model{booting: true, collapsed: map[string]bool{}}
+	updated, _ := m.Update(refreshMsg{listedAt: time.Now()})
+	got := updated.(*Model)
+	if got.booting {
+		t.Fatal("the first poller pass should end boot")
 	}
 }
 
@@ -696,5 +718,36 @@ func TestNewHandsTheKeyTableToTmux(t *testing.T) {
 	}
 	if !strings.Contains(string(right), "Ctrl+g = review") || !strings.Contains(string(right), "F9") {
 		t.Fatalf("session footer should carry the config's keys, got %q", right)
+	}
+}
+
+func TestStartupPreservesExistingPaneHeight(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "tall", t.TempDir(), "")
+	id := m.sessionRows()[0].ID
+	if _, err := tmuxCmd("resize-window", "-t", "am_"+id, "-x", "120", "-y", "80").CombinedOutput(); err != nil {
+		t.Fatal(err)
+	}
+	loaded := New(m.cfg, m.store, m.tmux, m.poller.engine, m.hooks, "dev")
+	loaded.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	loaded.applyCmd(t, loaded.refreshCmd())
+	if _, h := windowSize(t, id); h < 80 {
+		t.Fatalf("reopen shrank an existing pane from 80 to %d rows", h)
+	}
+}
+
+func TestStartupErrorStaysVisibleUntilFirstRefresh(t *testing.T) {
+	m := buildModel(t)
+	m.booting = true
+	m.Update(errMsg{errors.New("startup poll failed")})
+	if !m.booting {
+		t.Fatal("an error before the first refresh must not finish boot")
+	}
+	if !strings.Contains(ansi.Strip(m.View()), "startup poll failed") {
+		t.Fatal("startup error is hidden behind the boot loader")
+	}
+	m.Update(refreshMsg{listedAt: time.Now()})
+	if m.booting {
+		t.Fatal("the first successful refresh must finish boot")
 	}
 }
