@@ -78,6 +78,8 @@ func listHelpRows(list keybind.Table, arrowStep bool) [][2]string {
 	h.fixed("", "Tell your agent to manage sessions and terminals in Agent Manager.")
 	h.action("move the cursor up", keybind.Up)
 	h.action("move the cursor down", keybind.Down)
+	h.fixed("click", "select the row")
+	h.fixed("double click", "focus a session, fold or unfold a group")
 	if arrowStep {
 		h.action("step in: focus the session, open the group", keybind.StepIn)
 		h.action("step out: close the group", keybind.StepOut)
@@ -173,6 +175,7 @@ func helpSections(session, list keybind.Table, arrowStep bool) []helpSection {
 		{title: "inside a session (attached or focused)", rows: sessionHelpRows(session, arrowStep, [][2]string{
 			{"wheel", "focused: scroll the pane's history, type to catch up"},
 			{"drag", "focused: select pane text and copy it"},
+			{"click the list", "focused: back to the manager (mouse back too)"},
 			{"double click", "focused: copy the word"},
 			{"triple click", "focused: copy the line"},
 			{"click", "focused: open the link under it, else a tracking agent gets it"},

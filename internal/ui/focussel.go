@@ -179,6 +179,9 @@ func (m *Model) handleFocusMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonBackward {
+		return m, m.leaveFocus()
+	}
 	if msg.Action == tea.MouseActionPress && msg.Alt && m.pane.mouse {
 		if row, col, inside := m.paneCell(msg.X, msg.Y); inside {
 			m.clearSelection()
@@ -314,6 +317,20 @@ func (m *Model) forwardClick(button, row, col int) {
 		return
 	}
 	m.sendFocusReport(press + release)
+}
+
+// endForwardedGesture closes a gesture the pane's application is still
+// holding, for the paths that leave focus between a forwarded press and
+// its release, which would leave it tracking a button nobody is holding.
+func (m *Model) endForwardedGesture() {
+	if !m.forwardingMouse {
+		return
+	}
+	paneRow := m.forwardingRow + m.paneRowOffset(m.pane.box.height)
+	if release, ok := m.mouseReport(m.forwardingButton, true, m.forwardingCol, paneRow); ok {
+		m.sendFocusReport(release)
+	}
+	m.clearForwardingMouse()
 }
 
 func (m *Model) clearForwardingMouse() {

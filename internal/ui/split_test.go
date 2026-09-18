@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/YoanWai/agent-manager/internal/store"
 	tea "github.com/charmbracelet/bubbletea"
@@ -487,6 +488,21 @@ func paintedRailLines(t *testing.T, m *Model, name string) []int {
 	return lines
 }
 
+func paintedGroupLines(t *testing.T, m *Model, path string) []int {
+	t.Helper()
+	m.View()
+	var lines []int
+	for i, row := range m.railHits {
+		if row >= 0 && m.rows[row].isGroup && m.rows[row].group == path {
+			lines = append(lines, i)
+		}
+	}
+	if len(lines) == 0 {
+		t.Fatalf("test setup: group %q painted no rail line", path)
+	}
+	return lines
+}
+
 // A click on a session row selects it, reading the geometry the frame
 // recorded while painting rather than re-deriving it (#110).
 func TestClickSelectsRow(t *testing.T) {
@@ -507,6 +523,322 @@ func TestClickSelectsRow(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("selecting a different row should schedule a preview")
+	}
+	if m.mode != modeList {
+		t.Fatalf("first click should select, not focus, mode = %v", m.mode)
+	}
+}
+
+func TestClickOnSelectedRowDoesNotFocus(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	m.selectSessionRow(t, "alpha")
+
+	line := paintedRailLines(t, m, "alpha")[0]
+	y0, _ := m.bodyYRange()
+	updated, _ := m.handleMouse(tea.MouseMsg{
+		X: 2, Y: y0 + line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+	})
+	m = updated.(*Model)
+	if m.mode != modeList {
+		t.Fatalf("one click on the selected session should not focus, mode = %v", m.mode)
+	}
+}
+
+func TestClickOnListLeavesFocus(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	createSession(t, m, "beta", t.TempDir(), "")
+	m.selectSessionRow(t, "alpha")
+	updated, _ := m.focusSelected()
+	m = updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("test setup: focus alpha, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+
+	line := paintedRailLines(t, m, "beta")[0]
+	y0, _ := m.bodyYRange()
+	updated, _ = m.handleMouse(tea.MouseMsg{
+		X: 2, Y: y0 + line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+	})
+	m = updated.(*Model)
+	if m.mode != modeList {
+		t.Fatalf("click on the list should leave focus, mode = %v", m.mode)
+	}
+	if sess, ok := m.selected(); !ok || sess.Name != "beta" {
+		t.Fatalf("click should select beta, got %q ok=%v", sess.Name, ok)
+	}
+}
+
+func TestClickOnFocusedSessionRowLeavesFocus(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	m.selectSessionRow(t, "alpha")
+	updated, _ := m.focusSelected()
+	m = updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("test setup: focus alpha, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+
+	line := paintedRailLines(t, m, "alpha")[0]
+	y0, _ := m.bodyYRange()
+	updated, _ = m.handleMouse(tea.MouseMsg{
+		X: 2, Y: y0 + line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+	})
+	m = updated.(*Model)
+	if m.mode != modeList {
+		t.Fatalf("click on the focused row should leave focus, mode = %v", m.mode)
+	}
+	if sess, ok := m.selected(); !ok || sess.Name != "alpha" {
+		t.Fatalf("selection should stay on alpha, got %q ok=%v", sess.Name, ok)
+	}
+}
+
+func TestClickInFocusedPaneStaysFocused(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	m.selectSessionRow(t, "alpha")
+	updated, _ := m.focusSelected()
+	m = updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("test setup: focus alpha, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+	m.View()
+	if !m.pane.box.ok {
+		t.Fatal("test setup: focused pane has no box")
+	}
+	updated, _ = m.handleMouse(tea.MouseMsg{
+		X: m.pane.box.x, Y: m.pane.box.y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+	})
+	m = updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("click in the pane should stay focused, mode = %v", m.mode)
+	}
+}
+
+// The pointer names the row, not the cursor: a wheel notch, a j or the
+// poll can walk the cursor away between the two presses.
+func TestDoubleClickFocusesTheRowUnderThePointer(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	createSession(t, m, "beta", t.TempDir(), "")
+
+	line := paintedRailLines(t, m, "alpha")[0]
+	y0, _ := m.bodyYRange()
+	press := tea.MouseMsg{X: 2, Y: y0 + line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+	updated, _ := m.handleMouse(press)
+	m = updated.(*Model)
+	m.selectSessionRow(t, "beta")
+
+	updated, _ = m.handleMouse(press)
+	m = updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("double click should focus, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+	if sess, ok := m.selected(); !ok || sess.Name != "alpha" {
+		t.Fatalf("double click should focus the row it landed on, got %q ok=%v", sess.Name, ok)
+	}
+}
+
+// The pair is matched on the row's identity: a rebuild between the presses
+// renumbers m.rows, so an index that meant this row can mean another.
+func TestDoubleClickPairsAcrossARebuild(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	for _, group := range []string{"aaa", "zzz"} {
+		if err := m.store.CreateGroup(group, dir); err != nil {
+			t.Fatalf("group %s: %v", group, err)
+		}
+	}
+	m.applyCmd(t, m.refreshCmd())
+	createSession(t, m, "filler", dir, "aaa")
+	createSession(t, m, "target", dir, "zzz")
+
+	y0, _ := m.bodyYRange()
+	line := paintedRailLines(t, m, "target")[0]
+	updated, _ := m.handleMouse(tea.MouseMsg{
+		X: 2, Y: y0 + line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+	})
+	m = updated.(*Model)
+	before := m.cursor
+
+	// Folding the group above target drops every row under it an index.
+	m.collapsed["aaa"] = true
+	m.rebuildRows()
+	line = paintedRailLines(t, m, "target")[0]
+	m.selectSessionRow(t, "target")
+	if m.cursor == before {
+		t.Fatal("test setup: folding should have renumbered target's row")
+	}
+	m.cursor = before
+
+	updated, _ = m.handleMouse(tea.MouseMsg{
+		X: 2, Y: y0 + line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+	})
+	m = updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("the pair should survive a rebuild, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+	if sess, ok := m.selected(); !ok || sess.Name != "target" {
+		t.Fatalf("should focus target, got %q ok=%v", sess.Name, ok)
+	}
+}
+
+// A session that has painted nothing yet leaves no pane box, and its
+// column is still its own: clicking it must not eject the user.
+func TestClickInTheFocusedColumnStaysFocused(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	m.selectSessionRow(t, "alpha")
+	updated, _ := m.focusSelected()
+	m = updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("test setup: focus alpha, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		preview string
+	}{
+		{"nothing captured yet", ""},
+		{"a capture shorter than the column", "one line"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m.preview = tc.preview
+			m.View()
+			y0, _ := m.bodyYRange()
+			updated, _ := m.handleMouse(tea.MouseMsg{
+				X: m.paneOriginX(), Y: y0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+			})
+			m = updated.(*Model)
+			if m.mode != modeFocus {
+				t.Fatalf("a click in the session's own column must not leave focus, mode = %v", m.mode)
+			}
+		})
+	}
+}
+
+// Full screen focus paints no rail, so the list frame's hits must not
+// outlive it and hand a click a row nobody pointed at.
+func TestClickInFullScreenFocusStaysFocused(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	createSession(t, m, "beta", t.TempDir(), "")
+	m.selectSessionRow(t, "beta")
+	m.View()
+
+	m.fullLayout = true
+	m.selectSessionRow(t, "alpha")
+	updated, _ := m.focusSelected()
+	m = updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("test setup: focus alpha, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+	m.View()
+
+	y0, _ := m.bodyYRange()
+	updated, _ = m.handleMouse(tea.MouseMsg{
+		X: 2, Y: y0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+	})
+	m = updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("a click with no list on screen must not leave focus, mode = %v", m.mode)
+	}
+	if sess, ok := m.selected(); !ok || sess.Name != "alpha" {
+		t.Fatalf("selection should stay on alpha, got %q ok=%v", sess.Name, ok)
+	}
+}
+
+func TestDoubleClickFocusesTheRowJustSelected(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	createSession(t, m, "beta", t.TempDir(), "")
+	m.selectSessionRow(t, "beta")
+
+	line := paintedRailLines(t, m, "alpha")[0]
+	y0, _ := m.bodyYRange()
+	press := tea.MouseMsg{X: 2, Y: y0 + line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+	updated, _ := m.handleMouse(press)
+	m = updated.(*Model)
+	if m.mode != modeList {
+		t.Fatalf("first click should select, mode = %v", m.mode)
+	}
+	updated, _ = m.handleMouse(press)
+	m = updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("double click should focus alpha, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+}
+
+func TestDoubleClickFocusesWhenEnterAttaches(t *testing.T) {
+	m := buildModel(t)
+	m.focusOnEnter = false
+	createSession(t, m, "alpha", t.TempDir(), "")
+	m.selectSessionRow(t, "alpha")
+
+	line := paintedRailLines(t, m, "alpha")[0]
+	y0, _ := m.bodyYRange()
+	press := tea.MouseMsg{X: 2, Y: y0 + line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+	updated, _ := m.handleMouse(press)
+	m = updated.(*Model)
+	updated, _ = m.handleMouse(press)
+	m = updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("double click should focus even when Enter attaches, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+}
+
+func TestSlowSecondClickDoesNotFocus(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	m.selectSessionRow(t, "alpha")
+
+	line := paintedRailLines(t, m, "alpha")[0]
+	y0, _ := m.bodyYRange()
+	press := tea.MouseMsg{X: 2, Y: y0 + line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+	updated, _ := m.handleMouse(press)
+	m = updated.(*Model)
+	m.listClickAt = time.Now().Add(-multiClickWindow - time.Millisecond)
+	updated, _ = m.handleMouse(press)
+	m = updated.(*Model)
+	if m.mode != modeList {
+		t.Fatalf("a slow second click should not focus, mode = %v", m.mode)
+	}
+}
+
+func TestClickOnSelectedGroupTogglesCollapse(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	if err := m.store.CreateGroup("work", dir); err != nil {
+		t.Fatalf("group: %v", err)
+	}
+	m.applyCmd(t, m.refreshCmd())
+	createSession(t, m, "alpha", dir, "work")
+	m.selectGroupRow(t, "work")
+	if m.collapsed["work"] {
+		t.Fatal("test setup: work should start open")
+	}
+
+	line := paintedGroupLines(t, m, "work")[0]
+	y0, _ := m.bodyYRange()
+	press := tea.MouseMsg{X: 2, Y: y0 + line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+	updated, _ := m.handleMouse(press)
+	m = updated.(*Model)
+	updated, _ = m.handleMouse(press)
+	m = updated.(*Model)
+	if !m.collapsed["work"] {
+		t.Fatal("double click on the selected group should fold it")
+	}
+
+	line = paintedGroupLines(t, m, "work")[0]
+	y0, _ = m.bodyYRange()
+	press.Y = y0 + line
+	updated, _ = m.handleMouse(press)
+	m = updated.(*Model)
+	updated, _ = m.handleMouse(press)
+	m = updated.(*Model)
+	if m.collapsed["work"] {
+		t.Fatal("a second double click should unfold it")
 	}
 }
 
@@ -969,6 +1301,94 @@ func TestClickSelectsRowWhileSearchingOrPrompting(t *testing.T) {
 			m = updated.(*Model)
 			if sess, ok := m.selected(); !ok || sess.Name != "alpha" {
 				t.Fatalf("click should select alpha, got %q ok=%v", sess.Name, ok)
+			}
+		})
+	}
+}
+
+// Entering a session ends the list's click run: the press that comes back
+// here would otherwise pair with the one that opened it and focus again.
+func TestClickLeavingFocusDoesNotRefocus(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	m.selectSessionRow(t, "alpha")
+
+	line := paintedRailLines(t, m, "alpha")[0]
+	y0, _ := m.bodyYRange()
+	press := tea.MouseMsg{X: 2, Y: y0 + line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+
+	updated, _ := m.handleMouse(press)
+	m = updated.(*Model)
+	updated, _ = m.focusSelected()
+	m = updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("test setup: focus alpha, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+	m.View()
+
+	updated, _ = m.handleMouse(press)
+	m = updated.(*Model)
+	if m.mode != modeList {
+		t.Fatalf("the click that leaves focus must not focus again, mode = %v", m.mode)
+	}
+}
+
+// A press those surfaces swallow opens no run, so the first press after
+// they close is a plain select rather than the second half of a pair.
+func TestClickWhileSearchingOpensNoClickRun(t *testing.T) {
+	for _, name := range []string{"searching", "quick bar"} {
+		t.Run(name, func(t *testing.T) {
+			m := buildModel(t)
+			createSession(t, m, "alpha", t.TempDir(), "")
+			m.selectSessionRow(t, "alpha")
+			if name == "searching" {
+				m.searching = true
+			} else {
+				m.openQuickMode()
+			}
+
+			line := paintedRailLines(t, m, "alpha")[0]
+			y0, _ := m.bodyYRange()
+			press := tea.MouseMsg{X: 2, Y: y0 + line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+			updated, _ := m.handleMouse(press)
+			m = updated.(*Model)
+
+			m.searching, m.quick.active = false, false
+			updated, _ = m.handleMouse(press)
+			m = updated.(*Model)
+			if m.mode != modeList {
+				t.Fatalf("one press after %s closes must not focus, mode = %v", name, m.mode)
+			}
+		})
+	}
+}
+
+// Search and the quick bar own Enter, so a double click stays a select:
+// it must not steal the key those surfaces are waiting for.
+func TestDoubleClickDoesNotFocusWhileSearchingOrPrompting(t *testing.T) {
+	for _, name := range []string{"searching", "quick bar"} {
+		t.Run(name, func(t *testing.T) {
+			m := buildModel(t)
+			createSession(t, m, "alpha", t.TempDir(), "")
+			m.selectSessionRow(t, "alpha")
+			if name == "searching" {
+				m.searching = true
+			} else {
+				m.openQuickMode()
+			}
+
+			line := paintedRailLines(t, m, "alpha")[0]
+			y0, _ := m.bodyYRange()
+			press := tea.MouseMsg{X: 2, Y: y0 + line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+			updated, _ := m.handleMouse(press)
+			m = updated.(*Model)
+			updated, _ = m.handleMouse(press)
+			m = updated.(*Model)
+			if m.mode != modeList {
+				t.Fatalf("double click must not focus while %s, mode = %v", name, m.mode)
+			}
+			if sess, ok := m.selected(); !ok || sess.Name != "alpha" {
+				t.Fatalf("selection should stay on alpha, got %q ok=%v", sess.Name, ok)
 			}
 		})
 	}

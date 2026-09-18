@@ -520,9 +520,17 @@ func (m *Model) viewFooter() string {
 	// title, carries the few keys the manager keeps, and drops the app-wide
 	// tier, which would name keys the agent receives.
 	if m.mode == modeFocus {
+		// Clicking the list only leaves focus where a list is painted, so
+		// the full screen layout, which hands the whole body to the pane,
+		// names the button and the key alone.
+		back := m.keys.Binding(keybind.Detach).Label()
+		if !m.fullLayout {
+			back += " / click list"
+		}
+		back += " / mouse back"
 		pairs := [][2]string{
 			{"typing", "to agent"},
-			{m.keys.Binding(keybind.Detach).Label(), "back"},
+			{back, "back"},
 		}
 		if m.arrowStep {
 			pairs = append(pairs, [2]string{"←", "prompt start: back"})
@@ -533,8 +541,8 @@ func (m *Model) viewFooter() string {
 		if label := m.keys.Binding(keybind.Editor).Label(); label != "" {
 			pairs = append(pairs, [2]string{label, "editor"})
 		}
-		// The footer holds one row: the word and line gestures are in the
-		// key map, where there is room to name all three.
+		// The word and line gestures stay in the key map, where there is
+		// room to name all three.
 		pairs = append(pairs, [2]string{"drag / click", "copy"})
 		if m.pane.mouse {
 			pairs = append(pairs, [2]string{"click / alt+drag", "agent UI"})
@@ -579,6 +587,9 @@ func (m *Model) rowLegend() legendSection {
 			foldAction = "unfold"
 		}
 		pairs := [][2]string{{k(keybind.Open), foldAction}}
+		if !m.mouseDisabled {
+			pairs = append(pairs, [2]string{"double click", foldAction})
+		}
 		if m.arrowStep {
 			pairs = append(pairs, m.legendPair(keybind.StepOut, "close", keybind.StepIn, "open"))
 		}
@@ -597,6 +608,9 @@ func (m *Model) rowLegend() legendSection {
 		title, conversation = "Shell", nil
 	}
 	pairs := [][2]string{{k(keybind.Open), enterHint}, {k(keybind.Attach), attachHint}}
+	if !m.mouseDisabled {
+		pairs = append(pairs, [2]string{"double click", "focus"})
+	}
 	if m.arrowStep {
 		pairs = append(pairs, [2]string{k(keybind.StepIn), "focus"})
 	}
