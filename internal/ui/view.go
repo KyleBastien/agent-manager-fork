@@ -432,7 +432,8 @@ func expandPaneTabs(line string, width int) string {
 // A pane is left taller than the panel on purpose, since shrinking it
 // costs agents like Codex their whole scrollback (#369), so the window
 // drops a blank tail instead. A completely blank, not-yet-painted pane
-// keeps its rows hit-testable, and a live caret keeps its row in view.
+// keeps its rows hit-testable. A caret below that output stays in view
+// only while the window still shows a painted row.
 func paneWindow(pane string, n, caretRow int) (lines []string, start int) {
 	if n <= 0 || pane == "" {
 		return nil, 0
@@ -446,11 +447,15 @@ func paneWindow(pane string, n, caretRow int) (lines []string, start int) {
 	if end == 0 {
 		end = min(n, len(lines))
 	}
-	if caretRow+1 > end {
-		end = caretRow + 1
-	}
-	if end > len(lines) {
-		end = len(lines)
+	if caretRow+1 > end && caretRow < len(lines) {
+		follow := caretRow + 1
+		from := max(follow-n, 0)
+		for _, line := range lines[from:follow] {
+			if !blankPaneRow(line) {
+				end = follow
+				break
+			}
+		}
 	}
 	start = end - n
 	if start < 0 {

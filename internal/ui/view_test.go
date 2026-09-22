@@ -81,13 +81,24 @@ func TestPaneWindowCropsBlankTailNotContent(t *testing.T) {
 	}
 }
 
-// The caret can rest below the last painted row, on an empty prompt line,
-// and the crop must keep its row on screen.
+// The caret can rest on the empty prompt line directly under the output,
+// and that row stays on screen with the output above it.
 func TestPaneWindowKeepsCaretRow(t *testing.T) {
+	prompt := "one\ntwo\n\n"
+	lines, start := paneWindow(prompt, 5, 2)
+	if start != 0 || len(lines) != 3 || lines[0] != "one" || lines[2] != "" {
+		t.Fatalf("caret under the output = start %d rows %q", start, lines)
+	}
+}
+
+// A caret parked a full window below the last painted row is the blank
+// tail of a pane left taller than the panel. Following it would show
+// nothing. The crop stays on the output.
+func TestPaneWindowIgnoresCaretInBlankTail(t *testing.T) {
 	tall := "one" + strings.Repeat("\n", 40)
 	lines, start := paneWindow(tall, 5, 20)
-	if start != 16 || len(lines) != 5 {
-		t.Fatalf("caret at row 20 = start %d, %d rows, want rows 16..20", start, len(lines))
+	if start != 0 || len(lines) != 1 || lines[0] != "one" {
+		t.Fatalf("caret in the blank tail = start %d rows %q, want the output", start, lines)
 	}
 }
 
