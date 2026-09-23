@@ -2124,7 +2124,7 @@ func (m *Model) rebuildRows() {
 			paths = pathsWithSessions(paths, sessionsByGroup)
 		}
 	}
-	if m.hideEmptyGroups {
+	if m.hideEmptyGroups && !m.showArchived {
 		// This is a presentation filter only: stored groups remain available
 		// to forms and return to the tree as soon as the toggle is switched
 		// off. Ancestors of groups with visible sessions stay in the tree.

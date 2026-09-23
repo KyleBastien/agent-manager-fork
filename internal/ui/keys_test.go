@@ -209,6 +209,70 @@ func TestToggleEmptyGroupsFiltersTreeWithoutDeletingGroups(t *testing.T) {
 	}
 }
 
+func TestHideEmptyGroupsDoesNotFilterTheArchivedView(t *testing.T) {
+	m := buildModel(t)
+	if err := m.store.CreateGroup("empty", ""); err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+	m.applyCmd(t, m.refreshCmd())
+	m.selectGroupRow(t, "empty")
+	m.archiveSelected()
+	_, cmd := m.handleConfirmKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	m.applyCmd(t, cmd)
+
+	if err := m.store.CreateGroup("bare", ""); err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+	m.hideEmptyGroups = true
+	m.showArchived = true
+	m.applyCmd(t, m.refreshCmd())
+	if got, want := m.groupRowPaths(), []string{"empty"}; !slices.Equal(got, want) {
+		t.Fatalf("archived view with hide-empty on should keep the archived empty group, got %v want %v", got, want)
+	}
+
+	m.showArchived = false
+	m.applyCmd(t, m.refreshCmd())
+	if got := m.groupRowPaths(); len(got) != 0 {
+		t.Fatalf("active view with hide-empty on should still hide empty groups, got %v", got)
+	}
+}
+
+func TestEmptyGroupsKeyIsRefusedInTheArchivedView(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	for _, path := range []string{"empty", "work"} {
+		if err := m.store.CreateGroup(path, ""); err != nil {
+			t.Fatalf("create group %s: %v", path, err)
+		}
+	}
+	m.applyCmd(t, m.refreshCmd())
+	createSession(t, m, "alpha", dir, "work")
+
+	press := func(key string) {
+		_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+		if cmd != nil {
+			m.applyCmd(t, cmd)
+		}
+		m.applyCmd(t, m.refreshCmd())
+	}
+
+	press("e")
+	if got, want := m.groupRowPaths(), []string{"work"}; !slices.Equal(got, want) {
+		t.Fatalf("e should hide the empty group, got %v want %v", got, want)
+	}
+
+	press("t")
+	press("e")
+	if !m.hideEmptyGroups {
+		t.Fatal("e in the archived view should leave the hide-empty setting alone")
+	}
+
+	press("t")
+	if got, want := m.groupRowPaths(), []string{"work"}; !slices.Equal(got, want) {
+		t.Fatalf("back on the active list, empty groups should still be hidden, got %v want %v", got, want)
+	}
+}
+
 func TestArchivedViewIgnoresFold(t *testing.T) {
 	m := buildModel(t)
 	dir := t.TempDir()
