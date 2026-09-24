@@ -1,6 +1,6 @@
 module github.com/YoanWai/agent-manager
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/BurntSushi/toml v1.6.0
@@ -66,3 +66,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
+
+godebug x509sslcertoverrideplatform=0
