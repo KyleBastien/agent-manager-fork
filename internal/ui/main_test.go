@@ -19,6 +19,9 @@ const testSocket = "amuitest"
 // ("server exited unexpectedly", the recurring CI failure in
 // TestFocusWatchReportsCursor).
 func TestMain(m *testing.M) {
+	// The suite runs as if at the machine it runs on, even when the
+	// developer reached it over SSH.
+	remoteTerminal = localTerminal
 	// kill-server fails whenever no server is up, which is the normal case.
 	tmuxCmd("kill-server").Run()
 	// Without tmux the run still starts: each test skips through its own
