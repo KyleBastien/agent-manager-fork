@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+
+	"github.com/YoanWai/agent-manager/internal/notify"
 )
 
 // testSocket is an isolated tmux server for this package's tests, so they
@@ -19,6 +21,11 @@ const testSocket = "amuitest"
 // ("server exited unexpectedly", the recurring CI failure in
 // TestFocusWatchReportsCursor).
 func TestMain(m *testing.M) {
+	// A copy of this binary launched as the notifier helper must act as
+	// one, or it reruns the whole suite and kills the parent run's server.
+	if notify.LaunchedAsHelper() {
+		os.Exit(notify.HelperMain(os.Args[1:]))
+	}
 	// kill-server fails whenever no server is up, which is the normal case.
 	tmuxCmd("kill-server").Run()
 	// Without tmux the run still starts: each test skips through its own
@@ -30,6 +37,8 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 	}
+	// A real banner on macOS builds that helper from this binary.
+	postNotification = func(notify.Event) {}
 	code := m.Run()
 	tmuxCmd("kill-server").Run()
 	os.Exit(code)
