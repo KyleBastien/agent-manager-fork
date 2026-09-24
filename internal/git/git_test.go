@@ -649,6 +649,60 @@ func TestRemoveWorktreeIfClean(t *testing.T) {
 	}
 }
 
+func withRemote(t *testing.T, dir string) {
+	t.Helper()
+	remote := t.TempDir()
+	gitIn(t, remote, "init", "--bare", "-b", "main")
+	gitIn(t, dir, "remote", "add", "origin", remote)
+	gitIn(t, dir, "push", "origin", "main")
+}
+
+func TestRemoveWorktreeIfCleanRemovesPushedCommits(t *testing.T) {
+	driver, dir := testRepo(t)
+	write(t, dir, "a.txt", "x")
+	commit(t, dir, "seed")
+	withRemote(t, dir)
+	path, branch, err := driver.AddWorktree(dir, "pushed")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	write(t, path, "b.txt", "work")
+	commit(t, path, "work")
+	gitIn(t, path, "push", "origin", branch)
+
+	removed, err := driver.RemoveWorktreeIfClean(dir, path, branch)
+	if err != nil || !removed {
+		t.Fatalf("pushed commits are not lost work: removed=%v err=%v", removed, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("worktree directory still on disk")
+	}
+}
+
+func TestRemoveWorktreeIfCleanKeepsUnpushedCommits(t *testing.T) {
+	driver, dir := testRepo(t)
+	write(t, dir, "a.txt", "x")
+	commit(t, dir, "seed")
+	withRemote(t, dir)
+	path, branch, err := driver.AddWorktree(dir, "unpushed")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	write(t, path, "b.txt", "work")
+	commit(t, path, "work")
+
+	removed, err := driver.RemoveWorktreeIfClean(dir, path, branch)
+	if err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if removed {
+		t.Fatal("a commit that exists on no remote is work, worktree should be kept")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("kept worktree should still be on disk: %v", err)
+	}
+}
+
 func TestRenameWorktreeBranchKeepsDirectory(t *testing.T) {
 	driver, dir := testRepo(t)
 	write(t, dir, "a.txt", "x")
