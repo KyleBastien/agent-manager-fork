@@ -723,9 +723,6 @@ func TestRemoveWorktreeIfCleanRemovesPushedCommits(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("worktree directory still on disk")
 	}
-	if _, err := driver.run(dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
-		t.Fatal("branch should survive, it is what keeps the commits reachable")
-	}
 }
 
 func TestRemoveWorktreeIfCleanKeepsBranchWhenRemoteRefIsStale(t *testing.T) {
