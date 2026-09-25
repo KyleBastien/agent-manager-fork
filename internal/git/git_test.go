@@ -649,12 +649,13 @@ func TestRemoveWorktreeIfClean(t *testing.T) {
 	}
 }
 
-func withRemote(t *testing.T, dir string) {
+func withRemote(t *testing.T, dir string) string {
 	t.Helper()
 	remote := t.TempDir()
 	gitIn(t, remote, "init", "--bare", "-b", "main")
 	gitIn(t, dir, "remote", "add", "origin", remote)
 	gitIn(t, dir, "push", "origin", "main")
+	return remote
 }
 
 func TestRemoveWorktreeIfCleanRemovesPushedCommits(t *testing.T) {
@@ -676,6 +677,40 @@ func TestRemoveWorktreeIfCleanRemovesPushedCommits(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("worktree directory still on disk")
+	}
+	if _, err := driver.run(dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
+		t.Fatal("branch should survive, it is what keeps the commits reachable")
+	}
+}
+
+func TestRemoveWorktreeIfCleanKeepsBranchWhenRemoteRefIsStale(t *testing.T) {
+	driver, dir := testRepo(t)
+	write(t, dir, "a.txt", "x")
+	commit(t, dir, "seed")
+	remote := withRemote(t, dir)
+	path, branch, err := driver.AddWorktree(dir, "stale")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	write(t, path, "b.txt", "work")
+	commit(t, path, "work")
+	gitIn(t, path, "push", "origin", branch)
+	head, err := driver.run(path, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatalf("rev-parse: %v", err)
+	}
+	gitIn(t, remote, "branch", "-D", branch)
+
+	removed, err := driver.RemoveWorktreeIfClean(dir, path, branch)
+	if err != nil || !removed {
+		t.Fatalf("stale ref still removes the worktree: removed=%v err=%v", removed, err)
+	}
+	reachable, err := driver.run(dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	if err != nil {
+		t.Fatal("branch gone, commits only reachable through a stale remote ref")
+	}
+	if reachable != head {
+		t.Fatalf("branch should still point at the work: got %s, want %s", reachable, head)
 	}
 }
 

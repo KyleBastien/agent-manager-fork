@@ -786,7 +786,8 @@ func (d *Driver) RemoveWorktreeIfClean(root, path, branch string) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	if ahead != "0" {
+	inBase := ahead == "0"
+	if !inBase {
 		// The base ref only moves on fetch, so a branch that is pushed, and
 		// often already merged, still counts as ahead. Commits that exist on
 		// a remote are not work this would lose.
@@ -800,6 +801,13 @@ func (d *Driver) RemoveWorktreeIfClean(root, path, branch string) (bool, error) 
 	}
 	if _, err := d.run(root, "worktree", "remove", path); err != nil {
 		return false, err
+	}
+	// Remote-tracking refs are a local cache, so a branch deleted or
+	// force-pushed elsewhere can read as saved until the next fetch. The
+	// branch ref costs nothing and keeps those commits reachable, so only
+	// commits already in the base earn deleting it.
+	if !inBase {
+		return true, nil
 	}
 	if _, err := d.run(root, "branch", "-D", branch); err != nil {
 		return false, err
