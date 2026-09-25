@@ -658,6 +658,51 @@ func withRemote(t *testing.T, dir string) string {
 	return remote
 }
 
+func gitFailingOn(t *testing.T, arg string) string {
+	t.Helper()
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not installed")
+	}
+	shim := filepath.Join(t.TempDir(), "git")
+	script := "#!/bin/sh\ncase \" $* \" in *' " + arg + " '*) exit 1 ;; esac\nexec " + real + " \"$@\"\n"
+	if err := os.WriteFile(shim, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return shim
+}
+
+func TestRemoveWorktreeIfCleanReportsReachabilityFailure(t *testing.T) {
+	driver, dir := testRepo(t)
+	write(t, dir, "a.txt", "x")
+	commit(t, dir, "seed")
+	withRemote(t, dir)
+	path, branch, err := driver.AddWorktree(dir, "probe-fails")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	write(t, path, "b.txt", "work")
+	commit(t, path, "work")
+
+	driver.bin = gitFailingOn(t, "--remotes")
+	removed, err := driver.RemoveWorktreeIfClean(dir, path, branch)
+	if err == nil {
+		t.Fatal("a reachability check that failed is not proof the commits are saved")
+	}
+	if !strings.Contains(err.Error(), "rev-list") {
+		t.Fatalf("want the reachability call to be what failed, got %v", err)
+	}
+	if removed {
+		t.Fatal("nothing should be removed when the check fails")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("worktree should still be on disk: %v", err)
+	}
+	if _, err := driver.run(dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
+		t.Fatal("branch should still exist")
+	}
+}
+
 func TestRemoveWorktreeIfCleanRemovesPushedCommits(t *testing.T) {
 	driver, dir := testRepo(t)
 	write(t, dir, "a.txt", "x")
